@@ -53,6 +53,9 @@ jobs:
             APP_DIR="/var/www/polypulse"
             cd "$APP_DIR"
             git pull origin main
+            if [ ! -f .env ]; then
+              cp .env.example .env
+            fi
             docker compose up -d --build
             docker compose ps
             APP_PORT="${PORT:-3000}"
