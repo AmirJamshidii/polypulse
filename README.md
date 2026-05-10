@@ -25,6 +25,10 @@
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
+## CI/CD
+
+Auto deploy pipeline is documented in `docs/deployment-cicd.md`.
+
 ## Project setup
 
 ```bash

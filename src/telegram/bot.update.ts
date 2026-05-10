@@ -1,4 +1,5 @@
 import { Action, Command, Ctx, Update } from 'nestjs-telegraf';
+import { ConfigService } from '@nestjs/config';
 import { Markup } from 'telegraf';
 import type { Context } from 'telegraf';
 import { ExecutionInterval } from '../../generated/prisma/enums.js';
@@ -14,15 +15,34 @@ function tgId(ctx: Context): string {
 
 @Update()
 export class BotUpdate {
+  private readonly allowedUserIds: Set<string>;
+
   constructor(
+    private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly coordinator: ScheduleCoordinatorService,
     private readonly clob: PolymarketClobService,
-  ) {}
+  ) {
+    const raw = this.config.get<string>('ALLOWED_TELEGRAM_USER_IDS') ?? '';
+    this.allowedUserIds = new Set(
+      raw
+        .split(',')
+        .map((x) => x.trim())
+        .filter((x) => x.length > 0),
+    );
+  }
+
+  private async requireAllowed(ctx: Context): Promise<string | null> {
+    const id = tgId(ctx);
+    if (this.allowedUserIds.has(id)) return id;
+    await ctx.reply('You are not allowed to use this bot.');
+    return null;
+  }
 
   @Command('start')
   async start(@Ctx() ctx: Context): Promise<void> {
-    const id = tgId(ctx);
+    const id = await this.requireAllowed(ctx);
+    if (!id) return;
     await this.prisma.userPreference.upsert({
       where: { telegramUserId: id },
       create: { telegramUserId: id },
@@ -35,7 +55,8 @@ export class BotUpdate {
 
   @Command('positions')
   async positions(@Ctx() ctx: Context): Promise<void> {
-    const id = tgId(ctx);
+    const id = await this.requireAllowed(ctx);
+    if (!id) return;
     const bal = await this.clob.getBalanceUsdc();
     const orders = await this.clob.getOpenOrdersSummary();
     const logs = await this.prisma.tradeLog.findMany({
@@ -63,7 +84,8 @@ export class BotUpdate {
 
   @Command('strategy')
   async strategy(@Ctx() ctx: Context): Promise<void> {
-    tgId(ctx);
+    const id = await this.requireAllowed(ctx);
+    if (!id) return;
     await ctx.reply(
       'Configure strategy:',
       Markup.inlineKeyboard([
@@ -101,7 +123,8 @@ export class BotUpdate {
     ctx: Context,
     interval: ExecutionInterval,
   ): Promise<void> {
-    const id = tgId(ctx);
+    const id = await this.requireAllowed(ctx);
+    if (!id) return;
     const row = await this.prisma.userPreference.findUnique({
       where: { telegramUserId: id },
     });
@@ -118,7 +141,8 @@ export class BotUpdate {
 
   @Action(/^ast_(.+)$/)
   async onAsset(@Ctx() ctx: Context): Promise<void> {
-    const id = tgId(ctx);
+    const id = await this.requireAllowed(ctx);
+    if (!id) return;
     const m = (ctx as unknown as { match: RegExpExecArray }).match;
     const sym = m[1];
     const row = await this.prisma.userPreference.findUnique({
@@ -138,7 +162,8 @@ export class BotUpdate {
 
   @Action(/^thr_(\d+)$/)
   async onThr(@Ctx() ctx: Context): Promise<void> {
-    const id = tgId(ctx);
+    const id = await this.requireAllowed(ctx);
+    if (!id) return;
     const m = (ctx as unknown as { match: RegExpExecArray }).match;
     const thr = Number.parseInt(m[1], 10);
     const row = await this.prisma.userPreference.findUnique({
@@ -157,7 +182,8 @@ export class BotUpdate {
 
   @Action(/^bet_(\d+)$/)
   async onBet(@Ctx() ctx: Context): Promise<void> {
-    const id = tgId(ctx);
+    const id = await this.requireAllowed(ctx);
+    if (!id) return;
     const m = (ctx as unknown as { match: RegExpExecArray }).match;
     const row = await this.prisma.userPreference.findUnique({
       where: { telegramUserId: id },
@@ -175,7 +201,8 @@ export class BotUpdate {
 
   @Command('buy_now')
   async buyNow(@Ctx() ctx: Context): Promise<void> {
-    const id = tgId(ctx);
+    const id = await this.requireAllowed(ctx);
+    if (!id) return;
     await ctx.reply('Running Phase B (signal + trade if not WAIT)…');
     try {
       await this.coordinator.runManualPhaseB(id);
