@@ -3,6 +3,7 @@ import { CacheModule } from '@nestjs/cache-manager';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './prisma/prisma.module.js';
+import { TelegramModule } from './telegram/telegram.module.js';
 import { TradingModule } from './trading/trading.module.js';
 
 @Module({
@@ -12,6 +13,7 @@ import { TradingModule } from './trading/trading.module.js';
     CacheModule.register({ isGlobal: true }),
     PrismaModule,
     TradingModule,
+    TelegramModule,
   ],
 })
 export class AppModule {}
