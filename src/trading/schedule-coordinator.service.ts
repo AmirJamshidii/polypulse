@@ -72,7 +72,8 @@ export class ScheduleCoordinatorService
             this.log.warn(`Phase A error: ${(e as Error).message}`);
           }
         }
-        if (!s.phaseB && now >= boundary && now <= boundary + 120_000) {
+        // Evaluate signal only in the last 10 seconds before candle close.
+        if (!s.phaseB && now >= boundary - 10_000 && now < boundary) {
           s.phaseB = true;
           try {
             await this.phaseB.executeForUserAndAsset(user, asset, boundary);

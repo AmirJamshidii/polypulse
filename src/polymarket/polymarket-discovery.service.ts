@@ -51,16 +51,15 @@ export class PolymarketDiscoveryService {
     const q = params.searchQuery.trim().toLowerCase();
     try {
       const url = `${this.gammaBase().replace(/\/$/, '')}/markets`;
-      const { data } = await axios.get<GammaMarket[] | { data?: GammaMarket[] }>(
-        url,
-        {
-          params: { active: true, closed: false, limit: 200 },
-          timeout: 15_000,
-        },
-      );
+      const { data } = await axios.get<
+        GammaMarket[] | { data?: GammaMarket[] }
+      >(url, {
+        params: { active: true, closed: false, limit: 200 },
+        timeout: 15_000,
+      });
       const markets = Array.isArray(data)
         ? data
-        : Array.isArray((data as { data?: GammaMarket[] }).data)
+        : Array.isArray(data.data)
           ? (data as { data: GammaMarket[] }).data
           : [];
       const match = markets.find((m) => {

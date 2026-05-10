@@ -9,9 +9,18 @@ import { PolymarketDiscoveryService } from '../polymarket/polymarket-discovery.s
 import type { CachedMarketTokens } from '../polymarket/polymarket.types.js';
 import { defaultMarketQuery, parseAssetsJson } from './schedule.util.js';
 
+interface ProgressionState {
+  lastBoundaryMs: number;
+  lastSignal: 'UP' | 'DOWN';
+  lastStake: number;
+}
+
+const BET_LIMIT_USDC = 16;
+
 @Injectable()
 export class PhaseBService {
   private readonly log = new Logger(PhaseBService.name);
+  private readonly progression = new Map<string, ProgressionState>();
 
   constructor(
     private readonly binance: BinanceService,
@@ -21,6 +30,56 @@ export class PhaseBService {
     private readonly prisma: PrismaService,
     private readonly discovery: PolymarketDiscoveryService,
   ) {}
+
+  private stateKey(user: UserPreference, asset: string): string {
+    return `${user.telegramUserId}:${asset}`;
+  }
+
+  private intervalToBinance(
+    interval: UserPreference['executionInterval'],
+  ): '1h' | '15m' {
+    return interval === 'H1' ? '1h' : '15m';
+  }
+
+  private async resolveNextStake(
+    user: UserPreference,
+    asset: string,
+    boundaryMs: number,
+  ): Promise<number> {
+    const base = Number.parseFloat(user.baseBetUsdc);
+    const baseStake = Number.isFinite(base) ? base : 10;
+    const key = this.stateKey(user, asset);
+    const prev = this.progression.get(key);
+    if (!prev) return Math.min(baseStake, BET_LIMIT_USDC);
+
+    const periodMs =
+      this.intervalToBinance(user.executionInterval) === '1h'
+        ? 60 * 60 * 1000
+        : 15 * 60 * 1000;
+    if (prev.lastBoundaryMs !== boundaryMs - periodMs) {
+      this.progression.delete(key);
+      return Math.min(baseStake, BET_LIMIT_USDC);
+    }
+
+    try {
+      const outcomeCandle = await this.binance.getClosedKlines(
+        asset,
+        this.intervalToBinance(user.executionInterval),
+        1,
+        boundaryMs - 1,
+      );
+      const c = outcomeCandle[outcomeCandle.length - 1];
+      if (!c) return Math.min(baseStake, BET_LIMIT_USDC);
+      const won = (prev.lastSignal === 'UP') === c.isUp;
+      if (won) {
+        this.progression.delete(key);
+        return Math.min(baseStake, BET_LIMIT_USDC);
+      }
+      return Math.min(prev.lastStake * 2, BET_LIMIT_USDC);
+    } catch {
+      return Math.min(baseStake, BET_LIMIT_USDC);
+    }
+  }
 
   async executeForUserAndAsset(
     user: UserPreference,
@@ -32,8 +91,15 @@ export class PhaseBService {
     let ohlc1h: Awaited<ReturnType<BinanceService['getClosedKlines']>>;
     let ohlc5m: Awaited<ReturnType<BinanceService['getClosedKlines']>>;
     try {
-      ohlc1h = await this.binance.getClosedKlines(asset, '1h', 120, endTime);
-      ohlc5m = await this.binance.getClosedKlines(asset, '5m', 500, endTime);
+      // Check signal on the currently forming candle (last 10s window before close).
+      ohlc1h = await this.binance.getKlines(asset, '1h', 120, {
+        endTimeMs: endTime,
+        includeOpen: true,
+      });
+      ohlc5m = await this.binance.getKlines(asset, '5m', 500, {
+        endTimeMs: endTime,
+        includeOpen: true,
+      });
     } catch {
       await this.prisma.tradeLog.create({
         data: {
@@ -66,6 +132,7 @@ export class PhaseBService {
     }
 
     const signal = evald.signal;
+    const nextStake = await this.resolveNextStake(user, asset, boundaryMs);
     let warm: CachedMarketTokens | undefined = await this.cache.get(
       user.telegramUserId,
       asset,
@@ -88,6 +155,7 @@ export class PhaseBService {
     }
 
     if (signal === 'WAIT') {
+      this.progression.delete(this.stateKey(user, asset));
       await this.prisma.tradeLog.create({
         data: {
           userPreferenceId: user.id,
@@ -123,10 +191,9 @@ export class PhaseBService {
     }
 
     const tokenId = signal === 'UP' ? warm.yesTokenId : warm.noTokenId;
-    const size = Number.parseFloat(user.baseBetUsdc);
     const buy = await this.clob.marketBuyShares({
       tokenId,
-      sizeUsdc: Number.isFinite(size) ? size : 10,
+      sizeUsdc: nextStake,
     });
 
     await this.prisma.tradeLog.create({
@@ -137,7 +204,7 @@ export class PhaseBService {
         asset,
         tokenId,
         side: 'BUY',
-        size: user.baseBetUsdc,
+        size: String(nextStake),
         orderId: buy.orderId,
         polymarketUrl: warm.polymarketUrl,
         error: buy.error,
@@ -151,7 +218,13 @@ export class PhaseBService {
 
     if (buy.error) {
       this.log.warn(`Order failed: ${buy.error}`);
+      return;
     }
+    this.progression.set(this.stateKey(user, asset), {
+      lastBoundaryMs: boundaryMs,
+      lastSignal: signal,
+      lastStake: nextStake,
+    });
   }
 
   async executeAllAssets(
