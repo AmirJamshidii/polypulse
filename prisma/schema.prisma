@@ -1,0 +1,52 @@
+// https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum ExecutionInterval {
+  H1
+  M15
+}
+
+model UserPreference {
+  id                    String             @id @default(cuid())
+  telegramUserId        String             @unique
+  executionInterval     ExecutionInterval  @default(H1)
+  /// JSON string array, e.g. ["BTCUSDT"]
+  assets                String             @default("[\"BTCUSDT\"]")
+  signalThreshold       Int                @default(60)
+  polymarketSearchQuery String?
+  /// USDC amount as decimal string
+  baseBetUsdc           String             @default("10")
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  tradeLogs             TradeLog[]
+}
+
+model TradeLog {
+  id               String          @id @default(cuid())
+  userPreferenceId String?
+  userPreference   UserPreference? @relation(fields: [userPreferenceId], references: [id], onDelete: SetNull)
+  signal           String
+  executed         Boolean         @default(false)
+  tokenId          String?
+  side             String?
+  size             String?
+  orderId          String?
+  txHash           String?
+  polymarketUrl    String?
+  error            String?
+  escgo            String?
+  stochK           String?
+  stochD           String?
+  conf             String?
+  conditionId      String?
+  asset            String?
+  createdAt        DateTime        @default(now())
+}
