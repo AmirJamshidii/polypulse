@@ -13,6 +13,7 @@ RUN npm run build
 
 FROM node:22-alpine AS runner
 WORKDIR /app
+RUN apk add --no-cache su-exec
 RUN addgroup -g 1001 -S nodejs && adduser -S nestjs -u 1001 -G nodejs
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
@@ -22,5 +23,7 @@ COPY --from=build /app/generated ./generated
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/prisma.config.mjs ./prisma.config.mjs
 COPY --from=build /app/node_modules/prisma ./node_modules/prisma
-USER nestjs
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/main.js"]
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+RUN mkdir -p /app/data && chown -R nestjs:nodejs /app/data
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
