@@ -47,10 +47,7 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m
           script: |
-            APP_DIR="${{ secrets.SERVER_APP_DIR }}"
-            if [ -z "$APP_DIR" ]; then
-              APP_DIR="/var/www/polypulse"
-            fi
+            APP_DIR="/var/www/polypulse"
             cd "$APP_DIR"
             git pull origin main
             docker compose up -d --build
