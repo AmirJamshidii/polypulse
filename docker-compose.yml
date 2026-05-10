@@ -3,7 +3,7 @@ services:
     build: .
     env_file: .env
     ports:
-      - "${PORT:-3000}:3000"
+      - "${HEALTH_PORT}:3000"
     volumes:
       - polymarkulse_data:/app/data
     restart: unless-stopped
