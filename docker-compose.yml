@@ -1,5 +1,7 @@
 services:
   app:
+    # Local: default tag. CI/CD: workflow sets APP_IMAGE=ghcr.io/owner/repo:latest and uses pull + --no-build.
+    image: ${APP_IMAGE:-polypulse-app}
     build: .
     env_file: .env
     ports:
